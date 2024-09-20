@@ -69,8 +69,16 @@ a request)::
 
 import abc
 
+from google.api_core._cross_sync import CrossSync
+
+if not CrossSync.is_async:
+    from google.api_core.page_iterator_async import Page
+    from google.api_core.page_iterator_async import _item_to_value_identity
+
+__CROSS_SYNC_OUTPUT__ = "google.api_core._page_iterator_autogen"
 
 
+@CrossSync.drop
 class Page(object):
     """Single page of results in an iterator.
 
@@ -124,6 +132,7 @@ class Page(object):
         return result
 
 
+@CrossSync.drop
 def _item_to_value_identity(iterator, item):
     """An item to value transformer that returns the item un-changed."""
     # pylint: disable=unused-argument
@@ -131,6 +140,7 @@ def _item_to_value_identity(iterator, item):
     return item
 
 
+@CrossSync.convert_class(sync_name="Iterator")
 class AsyncIterator(abc.ABC):
     """A generic class for iterating through API list responses.
 
@@ -153,7 +163,7 @@ class AsyncIterator(abc.ABC):
         max_results=None,
     ):
         self._started = False
-        self.__active_aiterator = None
+        self.__active_iterator = None
 
         self.client = client
         """Optional[Any]: The client that created this iterator."""
@@ -177,6 +187,7 @@ class AsyncIterator(abc.ABC):
         """int: The total number of results fetched so far."""
 
     @property
+    @CrossSync.convert(replace_symbols={"_page_aiter": "_page_iter"})
     def pages(self):
         """Iterator of pages in the response.
 
@@ -192,13 +203,15 @@ class AsyncIterator(abc.ABC):
         self._started = True
         return self._page_aiter(increment=True)
 
+    @CrossSync.convert(sync_name="_items_iter", replace_symbols={"_page_aiter": "_page_iter"})
     async def _items_aiter(self):
         """Iterator for each item returned."""
-        async for page in self._page_aiter(increment=False):
+        async for page in CrossSync.rm_aio(self._page_aiter(increment=False)):
             for item in page:
                 self.num_results += 1
                 yield item
 
+    @CrossSync.convert("__iter__", replace_symbols={"_items_aiter": "_items_iter"})
     def __aiter__(self):
         """Iterator for each item returned.
 
@@ -213,11 +226,13 @@ class AsyncIterator(abc.ABC):
         self._started = True
         return self._items_aiter()
 
+    @CrossSync.convert("__next__", replace_symbols={"__aiter__": "__iter__", "__anext__": "__next__"})
     async def __anext__(self):
-        if self.__active_aiterator is None:
-            self.__active_aiterator = self.__aiter__()
-        return await self.__active_aiterator.__anext__()
+        if self.__active_iterator is None:
+            self.__active_iterator = self.__aiter__()
+        return CrossSync.rm_aio(await self.__active_iterator.__anext__())
 
+    @CrossSync.convert(sync_name="_page_iter")
     async def _page_aiter(self, increment):
         """Generator of pages of API responses.
 
@@ -230,15 +245,16 @@ class AsyncIterator(abc.ABC):
         Yields:
             Page: each page of items from the API.
         """
-        page = await self._next_page()
+        page = CrossSync.rm_aio(await self._next_page())
         while page is not None:
             self.page_number += 1
             if increment:
                 self.num_results += page.num_items
             yield page
-            page = await self._next_page()
+            page = CrossSync.rm_aio(await self._next_page())
 
     @abc.abstractmethod
+    @CrossSync.convert
     async def _next_page(self):
         """Get the next page in the iterator.
 
@@ -250,7 +266,7 @@ class AsyncIterator(abc.ABC):
         """
         raise NotImplementedError
 
-
+@CrossSync.convert_class(sync_name="GRPCIterator", replace_symbols={"AsyncIterator": "Iterator"})
 class AsyncGRPCIterator(AsyncIterator):
     """A generic class for iterating through gRPC list responses.
 
@@ -298,6 +314,7 @@ class AsyncGRPCIterator(AsyncIterator):
         self._request_token_field = request_token_field
         self._response_token_field = response_token_field
 
+    @CrossSync.convert
     async def _next_page(self):
         """Get the next page in the iterator.
 
@@ -311,7 +328,7 @@ class AsyncGRPCIterator(AsyncIterator):
         if self.next_page_token is not None:
             setattr(self._request, self._request_token_field, self.next_page_token)
 
-        response = await self._method(self._request)
+        response = CrossSync.rm_aio(await self._method(self._request))
 
         self.next_page_token = getattr(response, self._response_token_field)
         items = getattr(response, self._items_field)
