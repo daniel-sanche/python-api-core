@@ -69,7 +69,59 @@ a request)::
 
 import abc
 
-from google.api_core.page_iterator import Page
+
+
+class Page(object):
+    """Single page of results in an iterator.
+
+    Args:
+        parent (google.api_core.page_iterator.Iterator): The iterator that owns
+            the current page.
+        items (Sequence[Any]): An iterable (that also defines __len__) of items
+            from a raw API response.
+        item_to_value (Callable[google.api_core.page_iterator.Iterator, Any]):
+            Callable to convert an item from the type in the raw API response
+            into the native object. Will be called with the iterator and a
+            single item.
+        raw_page Optional[google.protobuf.message.Message]:
+            The raw page response.
+    """
+
+    def __init__(self, parent, items, item_to_value, raw_page=None):
+        self._parent = parent
+        self._num_items = len(items)
+        self._remaining = self._num_items
+        self._item_iter = iter(items)
+        self._item_to_value = item_to_value
+        self._raw_page = raw_page
+
+    @property
+    def raw_page(self):
+        """google.protobuf.message.Message"""
+        return self._raw_page
+
+    @property
+    def num_items(self):
+        """int: Total items in the page."""
+        return self._num_items
+
+    @property
+    def remaining(self):
+        """int: Remaining items in the page."""
+        return self._remaining
+
+    def __iter__(self):
+        """The :class:`Page` is an iterator of items."""
+        return self
+
+    def __next__(self):
+        """Get the next value in the page."""
+        item = next(self._item_iter)
+        result = self._item_to_value(self._parent, item)
+        # Since we've successfully got the next value from the
+        # iterator, we update the number of remaining.
+        self._remaining -= 1
+        return result
 
 
 def _item_to_value_identity(iterator, item):
